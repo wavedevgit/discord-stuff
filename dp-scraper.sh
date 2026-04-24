@@ -4,7 +4,7 @@
 
 set -e
 
-git clone --no-checkout --bare https://github.com/Discord-Datamining/Discord-Datamining dp
+git clone --no-checkout --mirror https://github.com/Discord-Datamining/Discord-Datamining dp
 cd dp
 
 mkdir -p ../data/dp
