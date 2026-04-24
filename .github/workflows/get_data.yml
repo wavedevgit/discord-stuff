@@ -1,0 +1,29 @@
+name: Get data
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+jobs:
+    get_data:
+        runs-on: ubuntu-latest
+        steps:
+            - name: install nodejs
+              uses: actions/setup-node
+              with:
+                  node-version: 25
+            - name: Checkout repo
+              uses: actions:checkout@v4
+            - name: run script
+              run: bash dp-scraper.sh
+            - name: set git config
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+            - name: commit & push
+              run: |
+                  git add --all  || echo "failed to add files" && exit 0
+                  git commit -m "chore: add data" || echo "failed to commit" && exit 0
+                  git push || echo "failed to push" && exit 0
