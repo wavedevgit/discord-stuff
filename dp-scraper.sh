@@ -1,60 +1,86 @@
 #!/bin/bash
+set -e
 
 # Credits: https://github.com/Discord-Datamining/Discord-Datamining/
 
-set -e
-
-git clone --no-checkout --mirror https://github.com/Discord-Datamining/Discord-Datamining dp
-cd dp
+REPO="Discord-Datamining/Discord-Datamining"
+API="https://api.github.com/repos/$REPO/commits"
 
 mkdir -p ../data/dp
 
-git log --pretty=format:"%H|%s" | while IFS='|' read -r commit_hash name; do
+# GitHub Actions token support (or manual export)
+AUTH_HEADER=""
+if [ -n "$GITHUB_TOKEN" ]; then
+  AUTH_HEADER="Authorization: Bearer $GITHUB_TOKEN"
+fi
 
-  export name="$name"
+per_page=100
+page=1
 
-  parsed=$(node -e '
-    const m = process.env.name.match(/Build\s*(\d+)\s*\(([a-f0-9]{40})\)/i);
-    if (!m) process.exit(0);
-    console.log(JSON.stringify({ buildNumber: m[1], versionHash: m[2] }));
-  ')
+while true; do
+  echo "Fetching page $page..."
 
-  # skip if not a build commit
-  if [ -z "$parsed" ]; then
-    continue
+  response=$(curl -s \
+    -H "Accept: application/vnd.github+json" \
+    -H "$AUTH_HEADER" \
+    "$API?per_page=$per_page&page=$page")
+
+  count=$(echo "$response" | jq 'length')
+
+  if [ "$count" -eq 0 ]; then
+    break
   fi
 
-  versionHash=$(node -e "console.log($parsed.versionHash)")
-  buildNumber=$(node -e "console.log($parsed.buildNumber)")
+  echo "$response" | jq -c '.[]' | while read -r commit; do
+    commit_hash=$(echo "$commit" | jq -r '.sha')
+    message=$(echo "$commit" | jq -r '.commit.message')
 
-  out_dir="../data/dp/$commit_hash"
-  mkdir -p "$out_dir"
+    export name="$message"
 
-  echo "$parsed" > "$out_dir/info.json"
+    parsed=$(node -e '
+      const m = process.env.name.match(/Build\s*(\d+)\s*\(([a-f0-9]{40})\)/i);
+      if (!m) process.exit(0);
+      console.log(JSON.stringify({
+        buildNumber: m[1],
+        versionHash: m[2]
+      }));
+    ')
 
-  url="http://canary.discord.com/overlay?build_id=$versionHash"
+    if [ -z "$parsed" ]; then
+      continue
+    fi
 
-  response_file=$(mktemp)
+    versionHash=$(node -e "console.log($parsed.versionHash)")
+    buildNumber=$(node -e "console.log($parsed.buildNumber)")
 
-  http_code=$(curl -s -w "%{http_code}" -o "$response_file" \
-    -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-    "$url")
+    out_dir="../data/dp/$commit_hash"
+    mkdir -p "$out_dir"
 
-  if [ "$http_code" -eq 200 ]; then
-    mv "$response_file" "$out_dir/index.html"
+    echo "$parsed" > "$out_dir/info.json"
 
-  elif [ "$http_code" -eq 404 ]; then
-    echo "no_html_found_here" > "$out_dir/index.html"
-    rm -f "$response_file"
-  else
-    body=$(cat "$response_file")
-    echo "error failed to get html: $http_code, $body" > "$out_dir/index.html"
-    rm -f "$response_file"
-  fi
-  
-  sleep $((RANDOM % 3))
+    url="https://canary.discord.com/overlay?build_id=$versionHash"
 
+    response_file=$(mktemp)
+
+    http_code=$(curl -s -w "%{http_code}" -o "$response_file" \
+      -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+      "$url")
+
+    if [ "$http_code" -eq 200 ]; then
+      mv "$response_file" "$out_dir/index.html"
+
+    elif [ "$http_code" -eq 404 ]; then
+      echo "no_html_found_here" > "$out_dir/index.html"
+      rm -f "$response_file"
+
+    else
+      body=$(cat "$response_file")
+      echo "error failed to get html: $http_code, $body" > "$out_dir/index.html"
+      rm -f "$response_file"
+    fi
+
+    sleep $((RANDOM % 2))
+  done
+
+  page=$((page + 1))
 done
-
-cd ..
-rm -rf dp
