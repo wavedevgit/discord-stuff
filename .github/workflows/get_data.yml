@@ -17,9 +17,12 @@ jobs:
             - name: Checkout repo
               uses: actions/checkout@v4
             - name: run script
-              run: bash dp-scraper.sh
+              run: |
+                  sudo apt install jq -y
+                  bash dp-scraper.sh
+                  bash changelogs.sh
               env:
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKENS}} 
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKENS}}
             - name: set git config
               run: |
                   git config user.name "github-actions[bot]"
