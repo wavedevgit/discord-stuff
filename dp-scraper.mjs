@@ -20,7 +20,10 @@ const githubHeaders = {
 };
 
 if (process.env.GITHUB_TOKEN) {
-    githubHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    githubHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN.trim().replace(
+        '\n',
+        '',
+    )}`;
 }
 
 /*

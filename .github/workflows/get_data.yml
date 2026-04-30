@@ -21,7 +21,7 @@ jobs:
                   sudo apt install jq -y
                   node dp-scraper.mjs
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_PAT }}
+                  GITHUB_TOKEN: ${{ secrets.GH_PAT }}
             - name: set git config
               run: |
                   git config user.name "github-actions[bot]"
