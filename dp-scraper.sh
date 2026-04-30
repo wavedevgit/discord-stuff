@@ -1,86 +1,95 @@
 #!/bin/bash
-set -e
-
-# Credits: https://github.com/Discord-Datamining/Discord-Datamining/
+set -euo pipefail
 
 REPO="Discord-Datamining/Discord-Datamining"
 API="https://api.github.com/repos/$REPO/commits"
 
-mkdir -p ../data/dp
+OUT_DIR="../data/dp"
+mkdir -p "$OUT_DIR"
 
-# GitHub Actions token support (or manual export)
-AUTH_HEADER=""
-if [ -n "$GITHUB_TOKEN" ]; then
-  AUTH_HEADER="Authorization: Bearer $GITHUB_TOKEN"
+PER_PAGE=100
+
+AUTH_ARGS=()
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  AUTH_ARGS=(-H "Authorization: Bearer $GITHUB_TOKEN")
 fi
 
-per_page=100
+process_commit() {
+  local sha="$1"
+  local msg="$2"
+
+  # extract build info directly in jq-compatible regex
+  parsed=$(jq -Rn --arg msg "$msg" '
+    $msg
+    | capture("Build\\s*(?<build>[0-9]+)\\s*\\((?<hash>[a-f0-9]{40})\\)")?
+  ')
+
+  [[ -z "$parsed" || "$parsed" == "null" ]] && return
+
+  build=$(echo "$parsed" | jq -r '.build')
+  hash=$(echo "$parsed" | jq -r '.hash')
+
+  out="$OUT_DIR/$sha"
+  mkdir -p "$out"
+
+  echo "$parsed" > "$out/info.json"
+
+  url="https://canary.discord.com/overlay?build_id=$hash"
+  tmp=$(mktemp)
+
+  code=$(curl -sS -L \
+    -o "$tmp" \
+    -w "%{http_code}" \
+    -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) Chrome/120" \
+    "$url") || true
+
+  if [[ "$code" == "200" ]]; then
+    mv "$tmp" "$out/index.html"
+  elif [[ "$code" == "404" ]]; then
+    echo "no_html_found_here" > "$out/index.html"
+    rm -f "$tmp"
+  else
+    echo "error $code" > "$out/index.html"
+    rm -f "$tmp"
+  fi
+}
+
+export -f process_commit
+export OUT_DIR
+
 page=1
 
 while true; do
   echo "Fetching page $page..."
 
-  response=$(curl -s \
+  response=$(curl -sS --fail \
     -H "Accept: application/vnd.github+json" \
-    -H "$AUTH_HEADER" \
-    "$API?per_page=$per_page&page=$page")
+    "${AUTH_ARGS[@]}" \
+    "$API?per_page=$PER_PAGE&page=$page")
 
   count=$(echo "$response" | jq 'length')
+  [[ "$count" -eq 0 ]] && break
 
-  if [ "$count" -eq 0 ]; then
-    break
-  fi
+  # extract everything in ONE jq pass (this is where speed comes from)
+  echo "$response" | jq -r '
+    .[] |
+    [
+      .sha,
+      (.commit.message | capture("Build\\s*(?<build>[0-9]+)\\s*\\((?<hash>[a-f0-9]{40})\\)")? // empty | @json)
+    ] |
+    @tsv
+  ' | while IFS=$'\t' read -r sha msg; do
+    [[ -z "$msg" ]] && continue
 
-  echo "$response" | jq -c '.[]' | while read -r commit; do
-    commit_hash=$(echo "$commit" | jq -r '.sha')
-    message=$(echo "$commit" | jq -r '.commit.message')
-
-    export name="$message"
-
-    parsed=$(node -e '
-      const m = process.env.name.match(/Build\s*(\d+)\s*\(([a-f0-9]{40})\)/i);
-      if (!m) process.exit(0);
-      console.log(JSON.stringify({
-        buildNumber: m[1],
-        versionHash: m[2]
-      }));
-    ')
-
-    if [ -z "$parsed" ]; then
-      continue
-    fi
-
-    versionHash=$(node -e "console.log($parsed.versionHash)")
-    buildNumber=$(node -e "console.log($parsed.buildNumber)")
-
-    out_dir="../data/dp/$commit_hash"
-    mkdir -p "$out_dir"
-
-    echo "$parsed" > "$out_dir/info.json"
-
-    url="https://canary.discord.com/overlay?build_id=$versionHash"
-
-    response_file=$(mktemp)
-
-    http_code=$(curl -s -w "%{http_code}" -o "$response_file" \
-      -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-      "$url")
-
-    if [ "$http_code" -eq 200 ]; then
-      mv "$response_file" "$out_dir/index.html"
-
-    elif [ "$http_code" -eq 404 ]; then
-      echo "no_html_found_here" > "$out_dir/index.html"
-      rm -f "$response_file"
-
-    else
-      body=$(cat "$response_file")
-      echo "error failed to get html: $http_code, $body" > "$out_dir/index.html"
-      rm -f "$response_file"
-    fi
-
-    sleep $((RANDOM % 2))
+    # parallelize per commit (8 workers)
+    process_commit "$sha" "$msg" &
+    
+    # limit concurrency (cheap worker pool)
+    while [[ $(jobs -r | wc -l) -ge 8 ]]; do
+      wait -n
+    done
   done
 
+  wait
   page=$((page + 1))
 done
