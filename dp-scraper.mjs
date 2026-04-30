@@ -5,7 +5,7 @@ import { Agent } from 'node:https';
 const REPO = 'Discord-Datamining/Discord-Datamining';
 const API = `https://api.github.com/repos/${REPO}/commits`;
 
-const OUT_DIR = '../data/dp';
+const OUT_DIR = './data/dp';
 const PER_PAGE = 100;
 
 /*
