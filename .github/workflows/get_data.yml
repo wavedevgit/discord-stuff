@@ -19,8 +19,7 @@ jobs:
             - name: run script
               run: |
                   sudo apt install jq -y
-                  bash dp-scraper.sh
-                  bash changelogs.sh
+                  node dp-scraper.js
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKENS}}
             - name: set git config
