@@ -2,6 +2,8 @@ name: Get data
 
 on:
     workflow_dispatch:
+    schedule: 
+        - cron: "*/5 * * * *"
 
 permissions:
     contents: write
@@ -24,44 +26,11 @@ jobs:
                   sudo apt update
                   sudo apt install -y jq zip
 
-                  node dp-scraper.mjs
+                  bash changelogs.sh
               env:
                   GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
-            - name: find and zip data folder
-              run: |
-                  set -e
-
-                  DATA_DIR=""
-
-                  for dir in "./data" "../data"; do
-                    if [ -d "$dir" ]; then
-                      DATA_DIR="$dir"
-                      break
-                    fi
-                  done
-
-                  if [ -z "$DATA_DIR" ]; then
-                    echo "No data directory found"
-                    exit 1
-                  fi
-
-                  echo "Found data dir: $DATA_DIR"
-
-                  ZIP_NAME="data-archive.zip"
-
-                  cd "$(dirname "$DATA_DIR")"
-                  zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" "$(basename "$DATA_DIR")"
-
-            - name: upload zipped artifact
-              uses: actions/upload-artifact@v4
-              with:
-                  name: scraped-data
-                  path: data-archive.zip
-                  retention-days: 30
-                  if-no-files-found: error
-                  compression-level: 0
-
+     
             - name: set git config
               run: |
                   git config user.name "github-actions[bot]"
@@ -71,6 +40,6 @@ jobs:
               run: |
                   git add --all || echo "failed to add files"
 
-                  git commit -m "chore: add data" || echo "nothing to commit"
+                  git commit -m "chore: update changelogs history" || echo "nothing to commit"
 
                   git push || echo "failed to push"
