@@ -8,6 +8,9 @@ mkdir -p "$TEMP_DIR"
 FILE1="data/changelogs_desktop.json"
 FILE2="data/changelogs_mobile.json"
 
+git clone https://github.com/wavedevgit/discord-datamining_v2 changelogs_repo
+cd changelogs_repo 
+
 # Clear temp directory
 rm -f "$TEMP_DIR"/*.json
 
@@ -37,3 +40,4 @@ if ls "$TEMP_DIR"/*.json 1>/dev/null 2>&1; then
 else
   echo "No temp files found, skipping merge"
 fi
+rm -rf changelogs_repo
